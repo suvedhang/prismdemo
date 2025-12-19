@@ -12,203 +12,174 @@ st.set_page_config(
 # --- SESSION STATE ---
 if 'history' not in st.session_state:
     st.session_state['history'] = []
+if 'results_cache' not in st.session_state:
+    st.session_state['results_cache'] = {}
+if 'search_query' not in st.session_state:
+    st.session_state['search_query'] = ""
+if 'active_tab' not in st.session_state:
+    st.session_state['active_tab'] = "trending"
 
-# --- PERMANENT DARK THEME PALETTE ---
-bg_color = "#0E1117"      # Deep Black/Blue Background
-text_color = "#E0E0E0"    # Soft White Text
-card_bg = "#1A1C24"       # Dark Grey Card Background
-border_color = "#333333"  # Subtle Border
-accent_color = "#00D2FF"  # Neon Cyan Accent
-shadow_color = "rgba(0,0,0,0.3)"
+# --- CALLBACKS (Safety Logic) ---
+def perform_search(topic=None):
+    if topic:
+        st.session_state['search_query'] = topic
+    
+    current_topic = st.session_state['search_query']
+    
+    if current_topic:
+        if current_topic in st.session_state['results_cache']:
+            st.session_state['active_tab'] = "results"
+            return
+
+        data = logic.get_analysis(current_topic)
+        
+        if "error" not in data:
+            if current_topic not in st.session_state['history']:
+                st.session_state['history'].append(current_topic)
+            st.session_state['results_cache'][current_topic] = data
+            st.session_state['active_tab'] = "results"
+        else:
+            st.error(data['error'])
 
 # --- CUSTOM CSS ---
-st.markdown(f"""
+st.markdown("""
     <style>
-    /* MAIN BACKGROUND */
-    .stApp {{
-        background-color: {bg_color};
-        color: {text_color};
-    }}
-
-    /* INPUT FIELD Styling */
-    .stTextInput > div > div > input {{
-        background-color: {card_bg};
-        color: {text_color};
-        border: 1px solid {border_color};
-        border-radius: 12px;
-        padding: 12px;
-        font-size: 1.1rem;
-    }}
+    /* GLOBAL THEME */
+    .stApp { background-color: #0E1117; color: #E0E0E0; }
     
-    /* === BUTTON STYLING (Permanent Blue Gradient) === */
-    div.stButton > button {{
-        background: linear-gradient(135deg, #00C6FF 0%, #0072FF 100%) !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: bold !important;
-        padding: 0.6rem 2rem !important;
-        transition: transform 0.2s !important;
-        box-shadow: 0 4px 6px {shadow_color} !important;
-    }}
+    /* INPUT BOX */
+    .stTextInput > div > div > input {
+        background-color: #1A1C24; color: #E0E0E0; border: 1px solid #333; border-radius: 12px; padding: 12px;
+    }
     
-    div.stButton > button:hover {{
-        transform: scale(1.02) !important;
-        box-shadow: 0 6px 15px rgba(0, 114, 255, 0.4) !important;
-    }}
+    /* MAIN BUTTONS */
+    div.stButton > button {
+        background: linear-gradient(135deg, #00C6FF 0%, #0072FF 100%);
+        color: white !important; border: none; border-radius: 12px;
+        font-weight: bold; padding: 0.6rem 2rem; width: 100%;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    div.stButton > button:hover { transform: scale(1.02); }
+    
+    /* SIDEBAR BUTTONS */
+    [data-testid="stSidebar"] div.stButton > button {
+        background: #1A1C24; color: #E0E0E0 !important; border: 1px solid #333;
+        background-image: none; text-align: left; padding-left: 15px; box-shadow: none;
+    }
     
     /* NEWS CARDS */
-    .news-card {{
-        background-color: {card_bg};
-        border: 1px solid {border_color};
-        border-radius: 15px;
-        padding: 20px;
-        box-shadow: 0 4px 6px {shadow_color};
-        height: 100%;
-        transition: transform 0.2s;
-    }}
-    .news-card:hover {{
-        transform: translateY(-3px);
-    }}
+    .news-card {
+        background-color: #1A1C24; border: 1px solid #333; border-radius: 15px; padding: 20px; height: 100%;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
     
-    /* TRENDING PILLS */
-    .trend-pill {{
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background-color: {card_bg};
-        border: 1px solid {border_color};
-        color: {text_color};
+    /* TIP BOXES (Restored) */
+    .tip-box {
+        background-color: #1A1C24;
+        border-left: 4px solid #00D2FF;
         padding: 15px;
-        border-radius: 12px;
-        text-align: center;
-        box-shadow: 0 2px 4px {shadow_color};
-        font-weight: 500;
-        height: 100px;
-    }}
+        border-radius: 8px;
+        font-size: 0.95rem;
+        margin-top: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER WITH LOGO ---
-col_logo, col_title = st.columns([1, 8])
-
-with col_logo:
-    st.markdown(f"""
-        <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
-            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2L2 22H22L12 2Z" stroke="{text_color}" stroke-width="2" stroke-linejoin="round"/>
-                <path d="M12 6L12 22" stroke="{accent_color}" stroke-width="2"/>
-                <path d="M12 6L7 22" stroke="{text_color}" stroke-width="1" opacity="0.5"/>
-                <path d="M12 6L17 22" stroke="{text_color}" stroke-width="1" opacity="0.5"/>
-            </svg>
-        </div>
-    """, unsafe_allow_html=True)
-
-with col_title:
-    st.markdown(f"""
-        <div style="padding-top: 10px;">
-            <h1 style="margin: 0; color: {text_color}; font-size: 2.5rem;">PRISM</h1>
-            <p style="margin: 0; color: {text_color}; opacity: 0.7; font-size: 1.1rem;">
-                Refracting the Truth from the Noise
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-
-st.write("") 
+# --- HEADER ---
+c1, c2 = st.columns([1, 8])
+with c1:
+    st.markdown('<svg width="60" height="60" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 22H22L12 2Z" stroke="#E0E0E0" stroke-width="2"/><path d="M12 6L12 22" stroke="#00D2FF" stroke-width="2"/></svg>', unsafe_allow_html=True)
+with c2:
+    st.title("PRISM")
+    st.caption("Refracting the Truth from the Noise")
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Controls")
-    # Toggle Removed - Dark Mode is now Standard
+    model_name = "Auto-Detect"
+    if hasattr(logic, 'model') and hasattr(logic.model, 'model_name'):
+            model_name = logic.model.model_name
     
-    if st.checkbox("Enable Demo Mode"):
+    st.info(f"● SYSTEM ONLINE\n\nAPI: {model_name}")
+
+    if st.checkbox("Enable Demo Mode", value=logic.DEMO_MODE):
         logic.DEMO_MODE = True
         st.caption("Using Offline Backup Data")
     else:
         logic.DEMO_MODE = False
     
     st.divider()
-    st.subheader("Recent Searches")
+    st.subheader("🕒 History")
     if st.session_state['history']:
-        for item in reversed(st.session_state['history'][-5:]):
-            st.caption(f"• {item}")
+        for topic in reversed(st.session_state['history']):
+            st.button(f"📄 {topic}", on_click=perform_search, args=(topic,))
     else:
         st.caption("No history yet.")
 
 # --- SEARCH BAR ---
-with st.form(key='search_form'):
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        query_input = st.text_input("Search", placeholder="Enter topic (e.g. AI Regulation, Bitcoin...)", label_visibility="collapsed")
-    with col2:
-        submit_btn = st.form_submit_button("Analyze 🚀")
+col1, col2 = st.columns([5, 1])
+with col1:
+    st.text_input("Search", placeholder="Enter topic...", label_visibility="collapsed", key="search_query")
+with col2:
+    st.button("Analyze 🚀", on_click=perform_search)
 
 # --- MAIN CONTENT ---
-if not query_input:
+
+# 1. RESULTS VIEW
+if st.session_state['active_tab'] == "results" and st.session_state['search_query']:
+    topic = st.session_state['search_query']
+    if topic in st.session_state['results_cache']:
+        data = st.session_state['results_cache'][topic]
+        
+        st.markdown(f"### 🔍 Analysis for: **{data.get('topic', topic)}**")
+        st.markdown("---")
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(f"""<div class="news-card" style="border-top: 5px solid #FF4B4B;"><h3 style="color:#FF4B4B">🛑 Concerns</h3><p>{data['critic']['title']}</p><ul>{''.join([f'<li>{p}</li>' for p in data['critic']['points']])}</ul></div>""", unsafe_allow_html=True)
+        with c2:
+            st.markdown(f"""<div class="news-card" style="border-top: 5px solid #00D2FF;"><h3 style="color:#00D2FF">⚖️ Key Data</h3><p>{data['facts']['title']}</p><ul>{''.join([f'<li>{p}</li>' for p in data['facts']['points']])}</ul></div>""", unsafe_allow_html=True)
+        with c3:
+            st.markdown(f"""<div class="news-card" style="border-top: 5px solid #00D26A;"><h3 style="color:#00D26A">✅ Benefits</h3><p>{data['proponent']['title']}</p><ul>{''.join([f'<li>{p}</li>' for p in data['proponent']['points']])}</ul></div>""", unsafe_allow_html=True)
+    else:
+        st.error("Data missing. Please try searching again.")
+
+# 2. TRENDING VIEW (Default)
+else:
     st.markdown("### 🔥 Trending Debates")
     t1, t2, t3, t4 = st.columns(4)
-    with t1:
-        st.markdown(f"<div class='trend-pill'>🤖 AI Regulation<br><span style='font-size:0.8em; opacity:0.7'>Safety vs Speed</span></div>", unsafe_allow_html=True)
-    with t2:
-        st.markdown(f"<div class='trend-pill'>🌍 Climate Policies<br><span style='font-size:0.8em; opacity:0.7'>Growth vs Green</span></div>", unsafe_allow_html=True)
-    with t3:
-        st.markdown(f"<div class='trend-pill'>🪙 Crypto Future<br><span style='font-size:0.8em; opacity:0.7'>Freedom vs Control</span></div>", unsafe_allow_html=True)
-    with t4:
-        st.markdown(f"<div class='trend-pill'>🚗 EV Transition<br><span style='font-size:0.8em; opacity:0.7'>Cost vs Clean</span></div>", unsafe_allow_html=True)
+    with t1: st.button("🤖 AI Regulation", on_click=perform_search, args=("AI Regulation",))
+    with t2: st.button("🌍 Climate Policy", on_click=perform_search, args=("Climate Policy",))
+    with t3: st.button("🪙 Crypto Laws", on_click=perform_search, args=("Crypto Regulation",))
+    with t4: st.button("🚗 EV Transition", on_click=perform_search, args=("EV Transition",))
         
     st.markdown("---")
-    c1, c2 = st.columns(2)
+    
+    # --- RESTORED TIPS SECTION ---
+    st.markdown("### 💡 Analyst Pro Tips")
+    c1, c2, c3 = st.columns(3)
+    
     with c1:
-        st.info("💡 **Tip:** Try searching for 'Border Gavaskar Trophy' to see live news analysis.")
+        st.markdown("""
+        <div class="tip-box">
+            <b>🔍 Be Specific</b><br>
+            Vague topics like "Tech" get vague answers. Try "AI Safety Bill" or "iPhone 16 Launch" for sharper insights.
+        </div>
+        """, unsafe_allow_html=True)
+    
     with c2:
-        # Safe model name check
-        model_name = "Auto-Detect"
-        if hasattr(logic, 'model') and hasattr(logic.model, 'model_name'):
-             model_name = logic.model.model_name
-        st.success(f"⚡ **Status:** System Online")
-
-if query_input and submit_btn:
-    if query_input not in st.session_state['history']:
-        st.session_state['history'].append(query_input)
-
-    with st.spinner(f"🔍 Prism is refracting news on '{query_input}'..."):
-        data = logic.get_analysis(query_input)
+        st.markdown("""
+        <div class="tip-box">
+            <b>⚡ Real-Time Intelligence</b><br>
+            PRISM is not a static database. We fetch live articles from the last 24 hours to catch breaking news.
+        </div>
+        """, unsafe_allow_html=True)
         
-        if "error" in data:
-            st.error(data["error"])
-        else:
-            st.markdown("---")
-            c1, c2, c3 = st.columns(3)
-            
-            with c1:
-                st.markdown(f"""
-                <div class="news-card" style="border-top: 5px solid #FF4B4B;">
-                    <h3 style="color: #FF4B4B;">🛑 Concerns</h3>
-                    <p style="font-weight: bold; font-size: 1.1rem;">{data['critic']['title']}</p>
-                    <ul style="padding-left: 20px;">
-                    {''.join([f'<li style="margin-bottom: 8px;">{p}</li>' for p in data['critic']['points']])}
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-
-            with c2:
-                st.markdown(f"""
-                <div class="news-card" style="border-top: 5px solid {accent_color};">
-                    <h3 style="color: {accent_color};">⚖️ Key Data</h3>
-                    <p style="font-weight: bold; font-size: 1.1rem;">{data['facts']['title']}</p>
-                    <ul style="padding-left: 20px;">
-                    {''.join([f'<li style="margin-bottom: 8px;">{p}</li>' for p in data['facts']['points']])}
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-
-            with c3:
-                st.markdown(f"""
-                <div class="news-card" style="border-top: 5px solid #00D26A;">
-                    <h3 style="color: #00D26A;">✅ Benefits</h3>
-                    <p style="font-weight: bold; font-size: 1.1rem;">{data['proponent']['title']}</p>
-                    <ul style="padding-left: 20px;">
-                    {''.join([f'<li style="margin-bottom: 8px;">{p}</li>' for p in data['proponent']['points']])}
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
+    with c3:
+        st.markdown("""
+        <div class="tip-box">
+            <b>⚖️ The 'Critic' Card</b><br>
+            Always check the Red Card first. It exposes the risks and downsides that mainstream news often buries.
+        </div>
+        """, unsafe_allow_html=True)
